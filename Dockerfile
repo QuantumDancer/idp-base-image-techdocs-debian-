@@ -25,7 +25,7 @@ RUN apt-get update \
      && apt-get install -y --no-install-recommends \
      python3=3.13.5-1 \
      python3-venv=3.13.5-1 \
-     libcap2=1:2.75-10+deb13u1 \
+     libcap2=1:2.75-10+deb13u1+b1 \
      && npm install -g npm@11.10.1 \
      && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/techdocs /opt/techdocs
