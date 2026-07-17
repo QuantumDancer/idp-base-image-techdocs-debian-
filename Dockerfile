@@ -2,14 +2,12 @@
 # that force patched transitive deps — the versions its ranges otherwise resolve
 # to are flagged HIGH by Trivy. @techdocs/cli pulls in better-sqlite3, a native
 # addon with no Node 24 prebuilt, so npm compiles it here with build-essential —
-# a toolchain deliberately kept out of the runtime image. npm is upgraded to
-# clear fixable CVEs in its bundled deps.
+# a toolchain deliberately kept out of the runtime image.
 FROM node:24.13.1-trixie-slim AS build
 RUN apt-get update \
      && apt-get install -y --no-install-recommends \
      python3=3.13.5-1 \
      build-essential=12.12 \
-     && npm install -g npm@11.10.1 \
      && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/techdocs
 COPY techdocs/package.json ./package.json
@@ -19,15 +17,17 @@ RUN npm install --omit=dev \
 
 # Runtime stage: no compiler. Python (+venv) for mkdocs plus the prebuilt CLI
 # bundle from the build stage. libcap2 is upgraded to the trixie-security build
-# (CVE-2026-4878) because the base image still ships the vulnerable one.
+# (CVE-2026-4878) because the base image still ships the vulnerable one. npm is
+# removed — techdocs-cli and mkdocs never call it, and its bundled deps
+# (minimatch, tar, sigstore, ...) are a standing source of Trivy HIGH findings.
 FROM node:24.13.1-trixie-slim
 RUN apt-get update \
      && apt-get install -y --no-install-recommends \
      python3=3.13.5-1 \
      python3-venv=3.13.5-1 \
      libcap2=1:2.75-10+deb13u1+b1 \
-     && npm install -g npm@11.10.1 \
-     && rm -rf /var/lib/apt/lists/*
+     && rm -rf /var/lib/apt/lists/* \
+     && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=build /opt/techdocs /opt/techdocs
 
 # Trixie's system Python is externally managed (PEP 668), so mkdocs and its
