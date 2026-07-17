@@ -40,7 +40,7 @@ variables:
 commitlint:
   stage: lint
   <<: *verify-rules
-  image: node:24.13.1-trixie-slim
+  image: node:24.18.0-trixie-slim
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
     - npm install --no-save @commitlint/cli @commitlint/config-conventional
@@ -71,7 +71,7 @@ trivy-dockerfile:
   stage: lint
   <<: *verify-rules
   image:
-    name: aquasec/trivy:0.69.1
+    name: aquasec/trivy:0.72.0
     entrypoint: [""]
   script:
     # Run 1: write Code Quality artifact. No --exit-code so the file is
@@ -101,7 +101,7 @@ docker-build:
   # than a Docker daemon — same setup the chainsaw job in idp-crossplane-compositions
   # relies on. We build with a remote Podman client against that socket; the old
   # docker:dind service + buildx docker-container driver has no daemon to reach.
-  image: quay.io/podman/stable:v5.8.1
+  image: quay.io/podman/stable:v5.8.2
   variables:
     CONTAINER_HOST: unix:///run/podman/podman.sock
   script:
@@ -129,7 +129,7 @@ trivy:
   stage: scan
   <<: *verify-rules
   image:
-    name: aquasec/trivy:0.69.1
+    name: aquasec/trivy:0.72.0
     entrypoint: [""]
   variables:
     TRIVY_USERNAME: "$CI_REGISTRY_USER"
@@ -174,7 +174,7 @@ semantic-release:
   stage: release
   # Retag is just pull/tag/push — no image build — so the Docker CLI driving the
   # rootless Podman socket (Docker-compatible API) is enough; no DinD service.
-  image: quay.io/podman/stable:v5.8.1
+  image: quay.io/podman/stable:v5.8.2
   variables:
     CONTAINER_HOST: unix:///run/podman/podman.sock
   rules:
