@@ -4,8 +4,34 @@ stages:
   - scan
   - release
 
+# Run a merge request pipeline while an MR is open, and a branch pipeline
+# otherwise (e.g. main after merge). A bare `- when: always` catch-all would
+# instead spawn a *detached* MR pipeline that silently omits every job gated on
+# $CI_COMMIT_BRANCH (docker-build, semantic-release), so the build check would
+# vanish from the MR. These rules also suppress the pointless pipeline for the
+# vX.Y.Z tag semantic-release pushes — a tag matches none of them, so no pipeline
+# is created (previously that tag pipeline ran trivy against a $CI_COMMIT_REF_SLUG
+# image docker-build never built and failed with MANIFEST_UNKNOWN).
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # Suppress the duplicate branch pipeline when an MR is already open so a
+    # commit isn't verified twice.
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
 variables:
   TRIVY_SEVERITY: CRITICAL,HIGH
+
+# Verification jobs opt in here so they run in both the merge request pipeline and
+# branch pipelines. Jobs without explicit rules are omitted from MR pipelines, so
+# every job that gates a change must reference this. semantic-release deliberately
+# does not — it is main-branch-only (see its own rules).
+.verify-rules: &verify-rules
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
 
 # ---------------------------------------------------------------------------
 # Lint
@@ -13,6 +39,7 @@ variables:
 
 commitlint:
   stage: lint
+  <<: *verify-rules
   image: node:24.13.1-trixie-slim
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -31,6 +58,7 @@ commitlint:
 
 hadolint:
   stage: lint
+  <<: *verify-rules
   image: hadolint/hadolint:latest-debian
   script:
     - hadolint --format codeclimate Dockerfile > hadolint-codequality.json
@@ -41,6 +69,7 @@ hadolint:
 
 trivy-dockerfile:
   stage: lint
+  <<: *verify-rules
   image:
     name: aquasec/trivy:0.69.1
     entrypoint: [""]
@@ -67,11 +96,7 @@ trivy-dockerfile:
 
 docker-build:
   stage: build
-  # Branch pipelines only. Without this rule the job also runs on the tag pipeline
-  # semantic-release creates for vX.Y.Z, where CI_COMMIT_BRANCH is empty — it would
-  # rebuild the image and push a junk $CI_COMMIT_REF_SLUG tag (v1.0.0 -> v1-0-0).
-  rules:
-    - if: $CI_COMMIT_BRANCH
+  <<: *verify-rules
   # The runners are rootless Podman and expose a Docker-compatible socket rather
   # than a Docker daemon — same setup the chainsaw job in idp-crossplane-compositions
   # relies on. We build with a remote Podman client against that socket; the old
@@ -81,6 +106,11 @@ docker-build:
     CONTAINER_HOST: unix:///run/podman/podman.sock
   script:
     - |
+      # main pushes an immutable per-commit tag; branch/MR builds push a mutable
+      # per-ref tag (CI_COMMIT_BRANCH is empty on MR pipelines, so it's the ref
+      # slug). Those per-ref tags are ephemeral — the project's registry
+      # tag-expiration policy keeps only v* release tags and expires the rest
+      # after 7 days, so verifying the build in an MR leaves no lasting junk tag.
       if [ "$CI_COMMIT_BRANCH" = "main" ]; then
         TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
       else
@@ -97,6 +127,7 @@ docker-build:
 
 trivy:
   stage: scan
+  <<: *verify-rules
   image:
     name: aquasec/trivy:0.69.1
     entrypoint: [""]
