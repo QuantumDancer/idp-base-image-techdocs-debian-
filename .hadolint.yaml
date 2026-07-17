@@ -1,0 +1,7 @@
+trustedRegistries:
+  - docker.io
+
+# Use the following list to ignore certain warnings
+# ignored:
+#   # Reason
+#   - DLXXXX

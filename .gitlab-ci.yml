@@ -1,0 +1,171 @@
+stages:
+  - lint
+  - build
+  - scan
+  - release
+
+variables:
+  TRIVY_SEVERITY: CRITICAL,HIGH
+
+# ---------------------------------------------------------------------------
+# Lint
+# ---------------------------------------------------------------------------
+
+commitlint:
+  stage: lint
+  image: node:24.13.1-trixie-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+    - npm install --no-save @commitlint/cli @commitlint/config-conventional
+  script:
+    - |
+      if [ -n "$CI_MERGE_REQUEST_IID" ]; then
+        npx commitlint --from "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --to HEAD
+      else
+        npx commitlint --from HEAD~1 --to HEAD
+      fi
+
+hadolint:
+  stage: lint
+  image: hadolint/hadolint:latest-debian
+  script:
+    - hadolint --format codeclimate Dockerfile > hadolint-codequality.json
+  artifacts:
+    reports:
+      codequality: hadolint-codequality.json
+    when: always
+
+trivy-dockerfile:
+  stage: lint
+  image:
+    name: aquasec/trivy:0.69.1
+    entrypoint: [""]
+  script:
+    # Run 1: write Code Quality artifact. No --exit-code so the file is
+    # guaranteed to exist before Run 2 can fail the job.
+    - >
+      trivy config
+      --severity "$TRIVY_SEVERITY"
+      --format template
+      --template "@/contrib/gitlab-codequality.tpl"
+      --output trivy-dockerfile-codequality.json
+      Dockerfile
+    # Run 2: enforce exit code. Output to stdout — no raw artifact needed.
+    - trivy config --exit-code 1 --severity "$TRIVY_SEVERITY" Dockerfile
+  artifacts:
+    reports:
+      codequality: trivy-dockerfile-codequality.json
+    when: always
+
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
+
+docker-build:
+  stage: build
+  image: docker:29-cli
+  services:
+    - docker:29-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker context create builder
+    - docker buildx create builder --driver docker-container --use
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+      else
+        TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+      fi
+    # --provenance=false: Docker generates attestation manifests by default,
+    # producing an OCI index instead of a plain image manifest. GitLab's
+    # container registry doesn't display digests correctly for these multi-manifest
+    # images. See https://gitlab.com/gitlab-org/gitlab/-/issues/388865
+    # TODO: This seems to be an old issue. Find out why I'm still affected by this,
+    # even though I run an up-to-date GitLab instance.
+    - >
+      docker buildx build
+      --push
+      --provenance false
+      --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:buildcache
+      --cache-to type=registry,ref=$CI_REGISTRY_IMAGE:buildcache,mode=max
+      --tag "$TAG"
+      .
+
+# ---------------------------------------------------------------------------
+# Scan
+# ---------------------------------------------------------------------------
+
+trivy:
+  stage: scan
+  image:
+    name: aquasec/trivy:0.69.1
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        IMAGE="$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+      else
+        IMAGE="$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
+      fi
+    # Run 1: write Code Quality artifact. No --exit-code so the file is
+    # guaranteed to exist before Run 2 can fail the job.
+    # --ignore-unfixed skips Debian CVEs with no patch available,
+    # which would otherwise create permanent noise with no remediation path.
+    - >
+      trivy image
+      --ignore-unfixed
+      --severity "$TRIVY_SEVERITY"
+      --format template
+      --template "@/contrib/gitlab-codequality.tpl"
+      --output trivy-codequality.json
+      "$IMAGE"
+    # Run 2: table output to stdout for readable CI logs, enforce exit code.
+    # The vulnerability DB is already cached from Run 1.
+    - >
+      trivy image
+      --exit-code 1
+      --ignore-unfixed
+      --severity "$TRIVY_SEVERITY"
+      "$IMAGE"
+  artifacts:
+    reports:
+      codequality: trivy-codequality.json
+    when: always
+
+# ---------------------------------------------------------------------------
+# Release
+# ---------------------------------------------------------------------------
+
+semantic-release:
+  stage: release
+  image: docker:29-cli
+  services:
+    - docker:29-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  before_script:
+    - apk add --no-cache nodejs npm git
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    - npx --package semantic-release@25 --package @semantic-release/gitlab@13 semantic-release
+  after_script:
+    # Re-tag the image with the semver tag if a release was created.
+    # semantic-release writes the new version to .VERSION when using exec plugin,
+    # but we parse the latest git tag instead for simplicity.
+    - |
+      VERSION=$(git describe --tags --abbrev=0 2>/dev/null || true)
+      if [ -n "$VERSION" ]; then
+        SRC="$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+        DST="$CI_REGISTRY_IMAGE:$VERSION"
+        docker pull "$SRC"
+        docker tag "$SRC" "$DST"
+        docker push "$DST"
+      fi
