@@ -7,7 +7,7 @@ RUN apt-get update \
      && apt-get install -y --no-install-recommends \
      python3=3.13.5-1 \
      build-essential=12.12 \
-     && npm install -g npm@11.10.1 @techdocs/cli@1.9.2 \
+     && npm install -g npm@11.10.1 @techdocs/cli@1.11.2 \
      && rm -rf /var/lib/apt/lists/*
 
 # Runtime stage: no compiler. Python (+venv) for mkdocs, plus the already-built
