@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "semanticCommits": "enabled",
+  "assignees": ["benjamin"],
+  "separateMajorMinor": false,
+  "packageRules": [
+    {
+      "matchPackageNames": ["*"],
+      "groupName": "all dependencies",
+      "semanticCommitType": "fix"
+    }
+  ]
+}
