@@ -1,0 +1,16 @@
+{
+  "name": "techdocs-cli-bundle",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pins @techdocs/cli and forces patched transitive deps that Trivy flags as HIGH. Installed into the base image; not published.",
+  "dependencies": {
+    "@techdocs/cli": "1.11.2"
+  },
+  "overrides": {
+    "@isaacs/brace-expansion": "5.0.1",
+    "minimatch": "10.2.3",
+    "picomatch": "4.0.4",
+    "sigstore": "4.1.1",
+    "tar": "7.5.11"
+  }
+}
