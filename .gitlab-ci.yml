@@ -67,6 +67,11 @@ trivy-dockerfile:
 
 docker-build:
   stage: build
+  # Branch pipelines only. Without this rule the job also runs on the tag pipeline
+  # semantic-release creates for vX.Y.Z, where CI_COMMIT_BRANCH is empty — it would
+  # rebuild the image and push a junk $CI_COMMIT_REF_SLUG tag (v1.0.0 -> v1-0-0).
+  rules:
+    - if: $CI_COMMIT_BRANCH
   # The runners are rootless Podman and expose a Docker-compatible socket rather
   # than a Docker daemon — same setup the chainsaw job in idp-crossplane-compositions
   # relies on. We build with a remote Podman client against that socket; the old
@@ -155,8 +160,12 @@ semantic-release:
       VERSION=$(git describe --tags --abbrev=0 2>/dev/null || true)
       if [ -n "$VERSION" ]; then
         SRC="$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
-        DST="$CI_REGISTRY_IMAGE:$VERSION"
         podman --remote pull --creds "$CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD" "$SRC"
-        podman --remote tag "$SRC" "$DST"
-        podman --remote push --creds "$CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD" "$DST"
+        # $VERSION is like v1.2.3. Also publish moving major (v1) and major.minor
+        # (v1.2) tags so consumers can pin loosely; no latest by design.
+        V="${VERSION#v}"; MAJOR="v${V%%.*}"; MINOR="v${V%.*}"
+        for T in "$VERSION" "$MAJOR" "$MINOR"; do
+          podman --remote tag "$SRC" "$CI_REGISTRY_IMAGE:$T"
+          podman --remote push --creds "$CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD" "$CI_REGISTRY_IMAGE:$T"
+        done
       fi
