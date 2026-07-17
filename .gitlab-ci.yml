@@ -21,8 +21,12 @@ commitlint:
     - |
       if [ -n "$CI_MERGE_REQUEST_IID" ]; then
         npx commitlint --from "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --to HEAD
-      else
+      elif git rev-parse --verify -q HEAD~1 >/dev/null; then
         npx commitlint --from HEAD~1 --to HEAD
+      else
+        # Repo's first commit has no parent, so HEAD~1 doesn't resolve — lint
+        # just that commit by feeding its message to commitlint on stdin.
+        git log -1 --pretty=%B | npx commitlint --verbose
       fi
 
 hadolint:
