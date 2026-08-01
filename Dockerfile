@@ -3,7 +3,7 @@
 # to are flagged HIGH by Trivy. @techdocs/cli pulls in better-sqlite3, a native
 # addon with no Node 24 prebuilt, so npm compiles it here with build-essential —
 # a toolchain deliberately kept out of the runtime image.
-FROM node:24.18.0-trixie-slim AS build
+FROM node:24.18.1-trixie-slim AS build
 RUN apt-get update \
      && apt-get install -y --no-install-recommends \
      python3=3.13.5-1 \
@@ -20,7 +20,7 @@ RUN npm install --omit=dev \
 # (CVE-2026-4878) because the base image still ships the vulnerable one. npm is
 # removed — techdocs-cli and mkdocs never call it, and its bundled deps
 # (minimatch, tar, sigstore, ...) are a standing source of Trivy HIGH findings.
-FROM node:24.18.0-trixie-slim
+FROM node:24.18.1-trixie-slim
 RUN apt-get update \
      && apt-get install -y --no-install-recommends \
      python3=3.13.5-1 \
