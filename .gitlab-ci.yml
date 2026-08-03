@@ -71,7 +71,7 @@ trivy-dockerfile:
   stage: lint
   <<: *verify-rules
   image:
-    name: aquasec/trivy:0.72.0
+    name: aquasec/trivy:0.73.0
     entrypoint: [""]
   script:
     # Run 1: write Code Quality artifact. No --exit-code so the file is
@@ -129,7 +129,7 @@ trivy:
   stage: scan
   <<: *verify-rules
   image:
-    name: aquasec/trivy:0.72.0
+    name: aquasec/trivy:0.73.0
     entrypoint: [""]
   variables:
     TRIVY_USERNAME: "$CI_REGISTRY_USER"
